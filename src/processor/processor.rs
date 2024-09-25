@@ -11,7 +11,7 @@ const MEM_START: usize = 0x200;
 /// Struct that will not only hold all the information necessary but will
 /// have the implementation to execute instructions based on its state.
 #[allow(non_snake_case)]
-pub struct Memory<'b, 'c> {
+pub struct Processor<'b, 'c> {
 
     /// Index register to point at locations in memory.
     pub I: usize,
@@ -25,6 +25,10 @@ pub struct Memory<'b, 'c> {
     /// Used for timed events in programs and is decremented at a rate
     /// of 60hz until it reaches 0.
     pub delay_timer: u8,
+
+    /// Used for setting up beeping sounds, will also be decremented at
+    /// a rate of 60hz until it reaches 0.
+    pub sound_timer: u8,
 
     /// Stack used to store addresses to call and return from subroutines
     pub stack: Stack<usize>,
@@ -41,22 +45,27 @@ pub struct Memory<'b, 'c> {
     /// b -> holds the lifetime reference of Screen
     /// c -> holds the lifetime reference of Canvas inside Screen
     pub screen: &'b mut Screen<'c>,
+
+    /// Used to track the number of tick cycles to update the timers at a rate of 60hz.
+    cycle_count: u8,
 }
 
 #[allow(unused_variables)]
-impl<'b, 'c> Memory<'b, 'c> {
+impl<'b, 'c> Processor<'b, 'c> {
 
     /// Contructor for our memory struct.
     pub fn new(screen: &'b mut Screen<'c>) -> Self {
-        Memory {
+        Processor {
             I: 0,
             pc: MEM_START,
             opcode: 0,
             delay_timer: 0,
+            sound_timer: 0,
             stack: Stack::new(MEM_SIZE),
             V: [0; REGISTER_COUNT],
             memory: [0; MEM_SIZE],
             screen,
+            cycle_count: 0,
         }
     }
 
@@ -68,6 +77,27 @@ impl<'b, 'c> Memory<'b, 'c> {
     /// Used to peek at the value of a specific memory location.
     pub fn read_byte(&self, index: usize) -> u8 {
         self.memory[index]
+    }
+
+    /// Handle all system updates like delay timer.
+    pub fn tick(&mut self) {
+        self.cycle_count += 1;
+
+        // 1hz is a rate of 16.67ms, so when this time passes
+        // update the various timers.
+        if self.cycle_count > 16 {
+            self.cycle_count = 0;
+
+            // Update delay timer
+            if self.delay_timer > 0 {
+                self.delay_timer -= 1;
+            }
+
+            // Update sound timer.
+            if self.sound_timer > 0 {
+                self.sound_timer -= 1;
+            }
+        }
     }
 
     /// Wrapper function to call one fetch execute cycle.
@@ -107,23 +137,30 @@ impl<'b, 'c> Memory<'b, 'c> {
         let n: u8 = nibbles.3 as u8;
 
         match nibbles {
-            (0x0, 0x0, 0xe, 0x0)    => self.clear_screen(),
-            (0x0, 0x0, 0xE, 0xE)    => self.return_from_subroutine(),
-            (0x1, _, _, _)          => self.jump(nnn),
-            (0x2, _, _, _)          => self.call_subroutine(nnn),
-            (0x3, _, _, _)          => self.skip_if_equal(x, nn),
-            (0x4, _, _, _)          => self.skip_if_not_equal(x, nn),
-            (0x5, _, _, _)          => self.skip_if_registers_equal(x, y),
-            (0x9, _, _, _)          => self.skip_if_registers_not_equal(x, y),
-            (0x6, _, _, _)          => self.set_register(x, nn),
-            (0x7, _, _, _)          => self.add_immediate(x, nn),
-            (0xA, _, _, _)          => self.set_index(nnn),
-            (0xD, _, _, _)          => self.display(x, y, n),
-            (0x8, _, _, 0x0)        => self.set_vx_vy(x, y),
-            (0x8, _, _, 0x1)        => self.binary_or(x, y),
-            (0x8, _, _, 0x2)        => self.binary_and(x, y),
-            (0x8, _, _, 0x3)        => self.logical_xor(x, y),
-            (0x8, _, _, 0x4)        => self.add_registers(x, y),
+            (0x0, 0x0, 0xe, 0x0)        => self.clear_screen(),
+            (0x0, 0x0, 0xE, 0xE)        => self.return_from_subroutine(),
+            (0x1, _, _, _)              => self.jump(nnn),
+            (0x2, _, _, _)              => self.call_subroutine(nnn),
+            (0x3, _, _, _)              => self.skip_if_equal(x, nn),
+            (0x4, _, _, _)              => self.skip_if_not_equal(x, nn),
+            (0x5, _, _, _)              => self.skip_if_registers_equal(x, y),
+            (0x9, _, _, _)              => self.skip_if_registers_not_equal(x, y),
+            (0x6, _, _, _)              => self.set_register(x, nn),
+            (0x7, _, _, _)              => self.add_immediate(x, nn),
+            (0xA, _, _, _)              => self.set_index(nnn),
+            (0xD, _, _, _)              => self.display(x, y, n),
+            (0x8, _, _, 0x0)            => self.set_vx_vy(x, y),
+            (0x8, _, _, 0x1)            => self.binary_or(x, y),
+            (0x8, _, _, 0x2)            => self.binary_and(x, y),
+            (0x8, _, _, 0x3)            => self.logical_xor(x, y),
+            (0x8, _, _, 0x4)            => self.add_registers(x, y),
+            (0x8, _, _, 0x5)            => self.subtract_vx_vy(x, y),
+            (0x8, _, _, 0x6)            => self.shift_right(x),
+            (0x8, _, _, 0x7)            => self.subtract_vy_vx(x, y),
+            (0x8, _, _, 0xE)            => self.shift_left(x),
+            (0xF, _, _, 0x7)            => self.set_vx_delay(x),
+            (0xF, _, 0x1, 0x5)          => self.set_delay_vx(x),
+            (0xF, _, 0x1, 0x8)          => self.set_sound_vx(x),
             _ => {},
         }
 
@@ -268,6 +305,73 @@ impl<'b, 'c> Memory<'b, 'c> {
         } else {
             self.V[0xF] = 0;
         }
+    }
+
+    /// OPCODE - 0x8XY5
+    /// 
+    /// This will technically set the value of V[x] to V[x] - V[y]
+    /// but we will conduct it the other way around and set the underflow
+    /// carry flag if V[y] > V[x].
+    fn subtract_vx_vy(&mut self, x: usize, y: usize) {
+        if self.V[x] > self.V[y] {
+            self.V[0xF] = 1;
+        } else {
+            self.V[0xF] = 0;
+        }
+
+        self.V[x] = self.V[x].wrapping_sub(self.V[y]);
+    }
+
+    /// OPCODE - 0x0x8X06
+    /// 
+    /// Sets V[x] one to the right, preserves the lsb before shifting.
+    fn shift_right(&mut self, x: usize) {
+         self.V[0xF]= self.V[x] & 0x1;
+        self.V[x] >>= 1;
+    }
+
+    /// OPCODE - 0x0x8X0E
+    /// 
+    /// Shifts V[x] one to the left, preserves the msb before shifting.
+    fn shift_left(&mut self, x: usize) {
+        self.V[0xF] = (self.V[x] & 0b10000000) >> 7;
+        self.V[x] <<= 1;
+    }
+
+    /// OPCODE - 0x8XY5
+    /// 
+    /// This will technically set the value of V[x] to V[x] - V[y]
+    /// but we will conduct it the other way around and set the underflow
+    /// carry flag if V[y] > V[x].
+    fn subtract_vy_vx(&mut self, x: usize, y: usize) {
+        if self.V[y] > self.V[x] {
+            self.V[0xF] = 1;
+        } else {
+            self.V[0xF] = 0;
+        }
+
+        self.V[y] = self.V[y].wrapping_sub(self.V[x]);
+    }
+
+    /// OPCODE - 0xFX15
+    /// 
+    /// Sets the value of V[x] to equal the current value of the delay timer.
+    fn set_vx_delay(&mut self, x: usize) {
+        self.V[x] = self.delay_timer; 
+    }
+
+    /// OPCODE - 0xFX07
+    /// 
+    /// Sets the value of the delay timer to the value of V[x].
+    fn set_delay_vx(&mut self, x: usize) {
+        self.delay_timer = self.V[x];
+    }
+
+    /// OPCODE - 0xFX18
+    /// 
+    /// Sets the value of the sound timer to the value of V[x].
+    fn set_sound_vx(&mut self, x: usize) {
+        self.sound_timer = self.V[x];
     }
 
     /// OPCODE - 0xDXYN

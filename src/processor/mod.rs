@@ -1,5 +1,5 @@
 // Declare the submodules for your project
-pub mod memory;
+pub mod processor;
 
 #[cfg(test)]
 pub mod tests;

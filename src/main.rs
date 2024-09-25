@@ -1,7 +1,7 @@
 extern crate sdl2;
 
 mod screen;
-mod memory;
+mod processor;
 mod collections;
 
 use screen::Screen;
@@ -10,7 +10,7 @@ use sdl2::keyboard::Keycode;
 use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
-use memory::memory::Memory;
+use processor::processor::Processor;
 
 const WIDTH: usize = 64;
 const HEIGHT: usize = 32;
@@ -30,9 +30,9 @@ pub fn main() {
 
     screen.setup();
 
-    let mut memory: Memory = Memory::new(&mut screen);
+    let mut processor: Processor = Processor::new(&mut screen);
 
-    load_file(&mut memory);
+    load_file(&mut processor);
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
@@ -49,12 +49,13 @@ pub fn main() {
             }
         }
 
-        memory.fetch();
-        memory.execute();
+        processor.tick();
+        processor.fetch();
+        processor.execute();
 
-        if memory.screen.update_screen {
-            memory.screen.draw();
-            memory.screen.update_screen = false;
+        if processor.screen.update_screen {
+            processor.screen.draw();
+            processor.screen.update_screen = false;
         }
         
         ::std::thread::sleep(Duration::from_millis(1));
@@ -62,7 +63,7 @@ pub fn main() {
 
 }
 
-fn load_file(memory: &mut Memory) {
+fn load_file(memory: &mut Processor) {
     // Read in file
     let mut file = File::open("roms/test_opcode.ch8").expect("File not found");
 
